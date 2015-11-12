@@ -3,12 +3,14 @@ CFLAGS=-c -Wall
 LDFLAGS=-lncurses
 OBJDIR=build
 
-debug: CFLAGS += -g
-debug: LDFLAGS += -g
-debug: fiveman
+
 
 fiveman: build/main.o build/fiveman_instruction.o build/fiveman_process_state.o build/fiveman_process_state_table.o build/ncurses_screen.o build/options.o build/procfile.o build/signal_handlers.o
 	$(CC) $(LDFLAGS) -o fiveman $(OBJDIR)/*.o
+
+debug: CFLAGS += -g
+debug: LDFLAGS += -g
+debug: fiveman
 
 clean:
 	rm $(OBJDIR)/*.o
