@@ -69,8 +69,8 @@ pid_t fiveman_process_state_start(fiveman_process_state * state, char * director
   if(child == 0){ // in child
     assert(setpgid(0,0) == 0);
     reset_signal_handlers();
-    assert(freopen(state->stderr, "w", stderr) != NULL);
-    assert(freopen(state->stdout, "w", stdout) != NULL);
+    assert(freopen(state->stderr, "a", stderr) != NULL);
+    assert(freopen(state->stdout, "a", stdout) != NULL);
     assert(freopen("/dev/null", "r", stdin) != NULL);
     assert(putenv(new_path_buf) == 0);
 
