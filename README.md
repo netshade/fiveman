@@ -10,6 +10,14 @@ Example:
 
 ![fiveman in use](https://raw.github.com/netshade/fiveman/master/example.gif)
 
+Install:
+
+```
+git clone https://github.com/netshade/fiveman.git
+cd fiveman
+make install
+```
+
 Notes:
 
 * Only tested on Mac OS X Yosemite so far. May compile on Linux, but I haven't tested yet.
