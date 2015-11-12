@@ -30,7 +30,7 @@ int main(int argc, char ** argv){
     }
   }
 
-  parse_options(argc, argv, &directory, &procfile, &cmd);
+  parse_options(argc, argv, &directory, &procfile, &port, &cmd);
 
   assert(directory != NULL);
   assert(procfile != NULL);

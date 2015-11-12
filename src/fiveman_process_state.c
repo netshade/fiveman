@@ -12,8 +12,6 @@
 #include "ncurses_screen.h"
 #include "signal_handlers.h"
 
-
-
 fiveman_process_state * fiveman_process_state_allocate(fiveman_instruction * instr, int port){
   fiveman_process_state * state = calloc(1, sizeof(fiveman_process_state));
   assert(state != NULL);

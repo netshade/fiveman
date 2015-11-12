@@ -9,16 +9,17 @@
 #include "fiveman.h"
 
 // Caller frees directory and procfile
-int parse_options(int argc, char ** argv, char ** directory, char ** procfile, fiveman_command ** cmd){
+int parse_options(int argc, char ** argv, char ** directory, char ** procfile, int * port, fiveman_command ** cmd){
   int c;
   char * found_directory = NULL,
        * found_procfile  = NULL,
        * found_command   = NULL;
-  size_t opt_size = 0;
-  int index = 0;
+  int found_port         = 0;
+  size_t opt_size        = 0;
+  int index              = 0;
   while(1){
     int option_index = 0;
-    c = getopt_long(argc, argv, "hd:f:", long_options, &option_index);
+    c = getopt_long(argc, argv, "hd:f:p:", long_options, &option_index);
     if(c == -1){
       break;
     }
@@ -34,6 +35,11 @@ int parse_options(int argc, char ** argv, char ** directory, char ** procfile, f
       found_directory = calloc(opt_size + 1, sizeof(char));
       assert(found_directory != NULL);
       strncpy(found_directory, optarg, opt_size);
+      break;
+    case 'p':
+      found_port = atoi(optarg);
+      assert(found_port > 0);
+      *port = found_port;
       break;
     case 'h':
       exit(0);
