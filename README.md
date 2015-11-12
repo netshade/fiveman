@@ -10,4 +10,7 @@ Example:
 
 ![fiveman in use](https://raw.github.com/netshade/fiveman/master/example.gif)
 
+Notes:
 
+* Only tested on Mac OS X Yosemite so far. May compile on Linux, but I haven't tested yet.
+* Screen refresh slowness is a known issue
