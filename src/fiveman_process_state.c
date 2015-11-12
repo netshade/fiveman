@@ -13,10 +13,12 @@
 #include "signal_handlers.h"
 
 
-fiveman_process_state * fiveman_process_state_allocate(fiveman_instruction * instr){
+
+fiveman_process_state * fiveman_process_state_allocate(fiveman_instruction * instr, int port){
   fiveman_process_state * state = calloc(1, sizeof(fiveman_process_state));
   assert(state != NULL);
   state->intent.intent = INTENT_NONE;
+  state->desired_port = port;
   state->instruction = instr;
   return state;
 }
@@ -65,6 +67,12 @@ pid_t fiveman_process_state_start(fiveman_process_state * state, char * director
   const size_t new_path_buf_size = strlen(path_assignment) + strlen(existing_path) + strlen(directory) + 2;
   char new_path_buf[new_path_buf_size];
   snprintf(new_path_buf, new_path_buf_size, "%s%s:%s", path_assignment, directory, existing_path);
+
+  const char * port_assignment = "PORT=";
+  const size_t new_port_buf_size = strlen(port_assignment) + 128;
+  char new_port_buf[new_port_buf_size];
+  snprintf(new_port_buf, new_port_buf_size, "%s%i", port_assignment, state->desired_port);
+
   pid_t child = fork();
   if(child == 0){ // in child
     assert(setpgid(0,0) == 0);
@@ -73,6 +81,8 @@ pid_t fiveman_process_state_start(fiveman_process_state * state, char * director
     assert(freopen(state->stdout, "a", stdout) != NULL);
     assert(freopen("/dev/null", "r", stdin) != NULL);
     assert(putenv(new_path_buf) == 0);
+    assert(putenv(new_port_buf) == 0);
+
 
     assert(chdir(directory) == 0);
     execl("/bin/sh", "/bin/sh", "-c", state->instruction->exec, NULL);

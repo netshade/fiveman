@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "options.h"
@@ -19,6 +20,15 @@ int main(int argc, char ** argv){
   int num_instructions               = 0;
   fiveman_instruction * instructions = NULL;
   fiveman_process_state * pstate     = NULL;
+  int default_port                   = 5000;
+  char * port_env                    = getenv("PORT");
+  int port                           = default_port;
+  if(port_env != NULL && strlen(port_env) > 0){
+    int port_from_env = atoi(port_env);
+    if(port_from_env > 0){
+      port = port_from_env;
+    }
+  }
 
   parse_options(argc, argv, &directory, &procfile, &cmd);
 
@@ -30,7 +40,7 @@ int main(int argc, char ** argv){
   assert(access(procfile, R_OK) == 0);
 
   num_instructions = parse_procfile(procfile, &instructions);
-  pstate = fiveman_process_state_table_allocate(instructions);
+  pstate = fiveman_process_state_table_allocate(instructions, port);
   fiveman_process_state_table_initialize(pstate);
 
   setup_screen();

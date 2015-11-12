@@ -3,7 +3,7 @@
 
 #include "fiveman_process_state.h"
 
-fiveman_process_state * fiveman_process_state_table_allocate(fiveman_instruction * instr);
+fiveman_process_state * fiveman_process_state_table_allocate(fiveman_instruction * instr, int starting_port);
 void fiveman_process_state_table_deallocate(fiveman_process_state * state);
 void fiveman_process_state_table_initialize(fiveman_process_state * state);
 void fiveman_process_state_table_converge(fiveman_process_state * state, char * directory);

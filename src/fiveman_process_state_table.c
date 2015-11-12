@@ -1,14 +1,15 @@
 #include "fiveman_process_state_table.h"
 
 
-fiveman_process_state * fiveman_process_state_table_allocate(fiveman_instruction * instr){
+fiveman_process_state * fiveman_process_state_table_allocate(fiveman_instruction * instr, int starting_port){
   fiveman_process_state * head       = NULL;
   fiveman_process_state * cur_state  = NULL;
   fiveman_process_state * prev_state = NULL;
   fiveman_instruction * cur_instr    = instr;
+  int port                           = starting_port;
 
   while(cur_instr != NULL){
-    cur_state = fiveman_process_state_allocate(cur_instr);
+    cur_state = fiveman_process_state_allocate(cur_instr, port);
     if(head == NULL){
       head = cur_state;
     }
@@ -17,6 +18,7 @@ fiveman_process_state * fiveman_process_state_table_allocate(fiveman_instruction
     }
     prev_state = cur_state;
     cur_instr = cur_instr->next;
+    port ++;
   }
 
   return head;

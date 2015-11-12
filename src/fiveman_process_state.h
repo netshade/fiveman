@@ -12,6 +12,7 @@
 typedef struct fiveman_process_state {
   const fiveman_instruction * instruction;
   fiveman_process_intent intent;
+  int desired_port;
   pid_t pid;
   time_t last_state_change;
   char * stdout;
@@ -23,7 +24,7 @@ typedef struct fiveman_process_state {
   struct fiveman_process_state * next;
 } fiveman_process_state;
 
-fiveman_process_state * fiveman_process_state_allocate(fiveman_instruction * instr);
+fiveman_process_state * fiveman_process_state_allocate(fiveman_instruction * instr, int port);
 void fiveman_process_state_deallocate(fiveman_process_state * state);
 void fiveman_process_state_initialize(fiveman_process_state * state);
 pid_t fiveman_process_state_start(fiveman_process_state * state, char * directory);
