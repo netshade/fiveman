@@ -2,8 +2,9 @@ CC=gcc
 CFLAGS=-c -Wall
 LDFLAGS=-lncurses
 OBJDIR=build
-
-
+PREFIX=/usr/local
+BINDIR=$(PREFIX)/bin
+INSTALL=install
 
 fiveman: build/main.o build/fiveman_instruction.o build/fiveman_process_state.o build/fiveman_process_state_table.o build/ncurses_screen.o build/options.o build/procfile.o build/signal_handlers.o
 	$(CC) $(LDFLAGS) -o fiveman $(OBJDIR)/*.o
@@ -11,6 +12,9 @@ fiveman: build/main.o build/fiveman_instruction.o build/fiveman_process_state.o 
 debug: CFLAGS += -g
 debug: LDFLAGS += -g
 debug: fiveman
+
+install: fiveman
+	$(INSTALL) fiveman $(BINDIR)/fiveman
 
 clean:
 	rm $(OBJDIR)/*.o
