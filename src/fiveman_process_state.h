@@ -5,14 +5,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+
 #include "fiveman_instruction.h"
 #include "fiveman_process_intent.h"
-
-#define SECONDS_PER_YEAR 31536000
-#define SECONDS_PER_MONTH 2592000
-#define SECONDS_PER_DAY 86400
-#define SECONDS_PER_HOUR 3600
-#define SECONDS_PER_MINUTE 60
 
 typedef struct fiveman_process_state {
   const fiveman_instruction * instruction;

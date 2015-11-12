@@ -12,5 +12,10 @@
 #define INACTIVE_STATUS_TITLE "[INACTIVE]"
 #define STOPPED_STATUS_TITLE "[STOPPED]"
 #define BOTTOM_BAR_TEXT "[Up Arrow / Down Arrow] Choose Process | [l] Launch Process | [s] Stop Process | [o] View stdout | [e] View stderr | [q] Quit"
+#define SECONDS_PER_YEAR 31536000
+#define SECONDS_PER_MONTH 2592000
+#define SECONDS_PER_DAY 86400
+#define SECONDS_PER_HOUR 3600
+#define SECONDS_PER_MINUTE 60
 
 #endif
