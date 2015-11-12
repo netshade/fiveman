@@ -41,3 +41,31 @@ void fiveman_process_state_table_converge(fiveman_process_state * state, char * 
     cur_state = cur_state->next;
   }
 }
+
+void fiveman_process_state_table_change_intent(fiveman_process_state * state, FIVEMAN_INTENT intent){
+  fiveman_process_state * cur_state = state;
+  while(cur_state != NULL){
+    fiveman_process_state_change_intent(cur_state, intent);
+    cur_state = cur_state->next;
+  }
+}
+
+void fiveman_process_state_table_signal(fiveman_process_state * state, int signal) {
+  fiveman_process_state * cur_state = state;
+  while(cur_state != NULL){
+    fiveman_process_state_signal(cur_state, signal);
+    cur_state = cur_state->next;
+  }
+}
+
+int fiveman_process_state_table_num_alive(fiveman_process_state * state){
+  int n = 0;
+  fiveman_process_state * cur_state = state;
+  while(cur_state != NULL){
+    if(fiveman_process_state_is_alive(cur_state)){
+      n++;
+    }
+    cur_state = cur_state->next;
+  }
+  return n;
+}

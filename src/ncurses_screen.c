@@ -1,13 +1,19 @@
 #include "ncurses_screen.h"
 
-#include <curses.h>
+#include <signal.h>
 
 #include "fiveman.h"
 #include "fiveman_process_state.h"
 #include "fiveman_process_state_table.h"
 
+
+bool exit_fiveman = FALSE;
+bool exit_fiveman_immediately = FALSE;
+
 void setup_screen(){
-  WINDOW * w = initscr();
+  exit_fiveman = FALSE;
+  exit_fiveman_immediately = FALSE;
+  initscr();
   keypad(stdscr, TRUE);
   nonl();
   nocbreak();
@@ -25,6 +31,10 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
   int cur_row                   = 0;
   int max_row                   = 0;
   int max_col                   = 0;
+  int term_timeout              = 100;
+  bool is_terminating           = FALSE;
+
+  time_t term_issued_at;
 
   char buffer[buffer_len];
   fiveman_process_state * states[total_states];
@@ -46,7 +56,7 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
     cur_row = 0;
     while(state != NULL){
       states[cur_row] = state;
-      int written = fiveman_process_state_status_string(buffer, buffer_len, inum, state);
+      fiveman_process_state_status_string(buffer, buffer_len, inum, state);
       move(inum, 0);
       if(highlighted_row == cur_row){
         attron(A_BOLD);
@@ -63,10 +73,10 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
     state = process_state;
     refresh();
     int c = getch();
-    bool is_exit = FALSE;
+
     switch(c){
     case 'q':
-      is_exit = TRUE;
+      exit_fiveman = TRUE;
       break;
     case 'r':
       refresh();
@@ -102,10 +112,30 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
       // hit delay
       break;
     }
-    if(is_exit){
+    if(is_terminating){
+      if(fiveman_process_state_table_num_alive(process_state) > 0){
+        time_t current;
+        time(&current);
+        int diff = current - term_issued_at;
+        exit_fiveman_immediately = diff >= term_timeout;
+        if(exit_fiveman_immediately){
+          fiveman_process_state_table_signal(process_state, SIGKILL);
+        } else {
+          fiveman_process_state_table_signal(process_state, SIGTERM);
+        }
+      } else {
+        exit_fiveman_immediately = TRUE;
+      }
+    }
+    if(exit_fiveman_immediately){
       break;
     }
-
+    if(exit_fiveman){
+      time(&term_issued_at);
+      fiveman_process_state_table_change_intent(process_state, INTENT_STOP);
+      exit_fiveman   = FALSE;
+      is_terminating = TRUE;
+    }
 
   }
 }

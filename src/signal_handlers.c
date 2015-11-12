@@ -12,8 +12,7 @@ void handle_sigchld(int sig) {
 }
 
 void handle_sigint(int sig){
-  teardown_screen();
-  exit(1);
+  exit_fiveman = TRUE;
 }
 
 void reset_signal_handlers(){
