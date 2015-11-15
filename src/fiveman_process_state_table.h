@@ -10,5 +10,12 @@ void fiveman_process_state_table_converge(fiveman_process_state * state, char * 
 void fiveman_process_state_table_signal(fiveman_process_state * state, int signal);
 void fiveman_process_state_table_change_intent(fiveman_process_state * state, FIVEMAN_INTENT intent);
 int fiveman_process_state_table_num_alive(fiveman_process_state * state);
+void fiveman_process_state_table_close_pipes(int close_in, int clouse_out, fiveman_process_state * table);
+void fiveman_process_state_table_close_sibling_pipes(int close_in, int clouse_out, fiveman_process_state * child, fiveman_process_state * table);
+
+void fiveman_process_state_table_mark_as_application_table(fiveman_process_state * table);
+void fiveman_process_state_table_reap_zombie_processes(fiveman_process_state * table);
+
+extern fiveman_process_state * application_state_table;
 
 #endif

@@ -6,7 +6,7 @@ PREFIX=/usr/local
 BINDIR=$(PREFIX)/bin
 INSTALL=install
 
-fiveman: build/main.o build/fiveman_instruction.o build/fiveman_process_state.o build/fiveman_process_state_table.o build/ncurses_screen.o build/options.o build/procfile.o build/signal_handlers.o
+fiveman: build/main.o build/fiveman_instruction.o build/fiveman_process_state.o build/fiveman_process_state_table.o build/ncurses_screen.o build/options.o build/procfile.o build/signal_handlers.o build/fiveman_process_statistics_mac.o
 	$(CC) $(LDFLAGS) -o fiveman $(OBJDIR)/*.o
 
 debug: CFLAGS += -g
@@ -43,3 +43,6 @@ build/procfile.o: src/procfile.c
 
 build/signal_handlers.o: src/signal_handlers.c
 	$(CC) $(CFLAGS) -I src/ -o build/signal_handlers.o src/signal_handlers.c
+
+build/fiveman_process_statistics_mac.o: src/fiveman_process_statistics_mac.c
+	$(CC) $(CFLAGS) -I src/ -o build/fiveman_process_statistics_mac.o src/fiveman_process_statistics_mac.c

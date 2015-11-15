@@ -42,6 +42,7 @@ int main(int argc, char ** argv){
   num_instructions = parse_procfile(procfile, &instructions);
   pstate = fiveman_process_state_table_allocate(instructions, port);
   fiveman_process_state_table_initialize(pstate);
+  fiveman_process_state_table_mark_as_application_table(pstate);
 
   setup_screen();
   draw_screen(procfile, directory, pstate, num_instructions);

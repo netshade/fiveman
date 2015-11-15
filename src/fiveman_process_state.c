@@ -9,21 +9,27 @@
 #include "fiveman_instruction.h"
 #include "fiveman_process_intent.h"
 #include "fiveman_process_state.h"
+#include "fiveman_process_state_table.h"
+#include "fiveman_process_statistics.h"
 #include "ncurses_screen.h"
 #include "signal_handlers.h"
 
 fiveman_process_state * fiveman_process_state_allocate(fiveman_instruction * instr, int port){
   fiveman_process_state * state = calloc(1, sizeof(fiveman_process_state));
   assert(state != NULL);
+
   state->intent.intent = INTENT_NONE;
   state->desired_port = port;
   state->instruction = instr;
+  state->host_read_fd = -1;
+  state->child_write_fd = -1;
   return state;
 }
 
 void fiveman_process_state_deallocate(fiveman_process_state * state){
   fiveman_process_state * next_ptr = NULL;
   while(state != NULL){
+    fiveman_process_state_close_pipes(1, 1, state);
     next_ptr = state->next;
     unlink(state->stdout);
     unlink(state->stderr);
@@ -56,9 +62,14 @@ void fiveman_process_state_initialize(fiveman_process_state * state){
   strncpy(state->stderr, tmp_buf, written);
   mktemp(state->stderr);
   assert(state->stderr != NULL);
+
+  bzero(&state->sample, sizeof(fiveman_process_statistics_sample));
 }
 
+fiveman_process_state * state_in_fork = NULL;
+
 pid_t fiveman_process_state_start(fiveman_process_state * state, char * directory){
+  state_in_fork = NULL;
   suspend_screen();
   const char * existing_path = getenv("PATH");
   const char * path_assignment = "PATH=";
@@ -71,26 +82,56 @@ pid_t fiveman_process_state_start(fiveman_process_state * state, char * director
   char new_port_buf[new_port_buf_size];
   snprintf(new_port_buf, new_port_buf_size, "%s%i", port_assignment, state->desired_port);
 
+  fiveman_process_state_initialize_pipes(state);
+
+  ignore_sigpipe();
   pid_t child = fork();
-  if(child == 0){ // in child
-    assert(setpgid(0,0) == 0);
-    reset_signal_handlers();
+  if(child == 0){ // in communicating child
+    fiveman_process_state_table_close_pipes(0, 1, application_state_table);
+    restore_sigpipe();
+    state_in_fork = state;
+    assert(setpgid(0, 0) == 0);
     assert(freopen(state->stderr, "a", stderr) != NULL);
     assert(freopen(state->stdout, "a", stdout) != NULL);
     assert(freopen("/dev/null", "r", stdin) != NULL);
-    assert(putenv(new_path_buf) == 0);
-    assert(putenv(new_port_buf) == 0);
-
-
-    assert(chdir(directory) == 0);
-    execl("/bin/sh", "/bin/sh", "-c", state->instruction->exec, NULL);
-    // If execution proceeds here, we should print error message and exit immediately
-    printf("Couldn't execute instruction %s, %i\n", state->instruction->exec, errno);
-    exit(errno);
+    pid_t subchild = fiveman_sampling_fork();
+    if(subchild == 0){ // in executing child
+      fiveman_process_state_close_pipes(1, 1, state);
+      assert(putenv(new_path_buf) == 0);
+      assert(putenv(new_port_buf) == 0);
+      assert(chdir(directory) == 0);
+      execl("/bin/sh", "/bin/sh", "-c", state->instruction->exec, NULL);
+      // If execution proceeds here, we should print error message and exit immediately
+      printf("Couldn't execute instruction %s, %i\n", state->instruction->exec, errno);
+      exit(errno);
+    } else if (subchild > 0){
+      // HACKY: The state now reflects the actual executing subchild here, as we are further sub-delegating management
+      // in this fork.
+      state_in_fork->pid = subchild;
+      int status = 0;
+      install_child_kill_handler();
+      bzero(&state->sample, sizeof(fiveman_process_statistics_sample));
+      while(1){
+        waitpid(subchild, &status, WNOHANG);
+        if(!fiveman_process_state_is_alive(state)){
+          break;
+        }
+        if(state != NULL){
+          fiveman_process_state_sample_process(state);
+          write(state->child_write_fd, &state->sample, sizeof(fiveman_process_statistics_sample));
+        }
+        sleep(1);
+      }
+      waitpid(subchild, &status, 0);
+      exit(status);
+    } else {
+      assert(subchild >= 0);
+      exit(-1);
+    }
   } else if(child > 0){ // in parent
-    if( setpgid(child, child) != 0) {
-      assert(errno == EACCES);
-		}
+    restore_sigpipe();
+    fiveman_process_state_close_pipes(1, 0, state);
+    assert(setpgid(child, child) == 0);
     resume_screen();
     return child;
   } else {
@@ -100,15 +141,47 @@ pid_t fiveman_process_state_start(fiveman_process_state * state, char * director
 }
 
 pid_t fiveman_process_state_signal(fiveman_process_state * state, int signal){
-  kill(state->pid, signal);
+  if(state->pid > 0){
+    killpg(state->pid, signal);
+  }
   return state->pid;
 }
 
-pid_t fiveman_process_state_stop(fiveman_process_state * state){
-  if(state->pid > 0){
-    kill(state->pid, SIGTERM);
+void fiveman_process_state_child_process_status(fiveman_process_state * state) {
+  if(fiveman_process_state_is_alive(state)){
+    fd_set set;
+    struct timeval timeout;
+    FD_ZERO (&set);
+    FD_SET (state->host_read_fd, &set);
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 100000;
+    const int max_samples_per_read = 20;
+    const size_t sample_buffer_size = sizeof(fiveman_process_statistics_sample) * max_samples_per_read;
+    fiveman_process_statistics_sample sample_buffer[max_samples_per_read];
+    bzero(sample_buffer, sample_buffer_size);
+    int nread = 0;
+    int nidx = 0;
+    while(1){
+      int res = select(state->host_read_fd + 1, &set, NULL, NULL, &timeout);
+      if(res <= 0){
+        break;
+      }
+      nread = read(state->host_read_fd, sample_buffer, sample_buffer_size);
+      if(nread < 1){
+        break;
+      } else {
+        nidx = (nread / sizeof(fiveman_process_statistics_sample)) - 1;
+        if(nidx > 0){
+          memcpy(&state->sample, &sample_buffer[nidx], sizeof(fiveman_process_statistics_sample));
+        }
+      }
+    }
   }
-  return state->pid;
+
+}
+
+pid_t fiveman_process_state_stop(fiveman_process_state * state){
+  return fiveman_process_state_signal(state, SIGTERM);
 }
 
 const char * fiveman_get_pager(){
@@ -140,8 +213,8 @@ void fiveman_process_state_page_file(fiveman_process_state * state, char * file)
     waitpid(child, &status, 0);
     reset_signal_handlers();
     install_signal_handlers();
-    // reap any waiting children that are now zombies
-    handle_sigchld(SIGCHLD);
+    fiveman_process_state_reap_zombie_processes(state);
+    reap_zombie_processes();
     resume_screen();
   } else {
     assert(child >= 0);
@@ -201,6 +274,7 @@ void fiveman_process_state_converge_start(fiveman_process_state * state, char * 
       // Do nothing, already started
     } else {
       // Start process, had previously stopped and should be started again
+      close(state->child_write_fd);
       state->pid = fiveman_process_state_start(state, directory);
       time(&state->last_state_change);
 
@@ -274,7 +348,7 @@ int fiveman_process_state_status_string(char * buffer, size_t buf_len, int index
   if(fiveman_process_state_stderr_has_new_entries(state)){
     stderr_info = "[stderr]";
   }
-  return snprintf(buffer, buf_len, "%s (%i for %s) %i. %s: %s %s %s", title, pid, age_state_buf, index, state->instruction->name, state->instruction->exec, stdout_info, stderr_info);
+  return snprintf(buffer, buf_len, "%s (%i for %s) %i. %s: %s %i%% %s %s", title, pid, age_state_buf, index, state->instruction->name, state->instruction->exec, state->sample.cpu_usage, stdout_info, stderr_info);
 }
 
 void fiveman_process_state_converge(fiveman_process_state * state, char * directory){
@@ -300,4 +374,36 @@ void fiveman_process_state_converge(fiveman_process_state * state, char * direct
   default:
     exit(-1);
   }
+}
+
+void fiveman_process_state_initialize_pipes(fiveman_process_state * state) {
+  fiveman_process_state_close_pipes(1, 1, state);
+  int fds[2];
+  assert(pipe(fds) == 0);
+  state->host_read_fd = fds[0];
+  state->child_write_fd = fds[1];
+}
+
+void fiveman_process_state_close_pipes(int close_in, int close_out, fiveman_process_state * state) {
+  if(close_in && state->child_write_fd > -1){
+    close(state->child_write_fd);
+    state->child_write_fd = -1;
+  }
+  if(close_out && state->host_read_fd > -1){
+    close(state->host_read_fd);
+    state->host_read_fd = -1;
+  }
+}
+
+void fiveman_process_state_reap_zombie_processes(fiveman_process_state * state) {
+  if(state->pid > 0){
+    while (waitpid(state->pid, 0, WNOHANG) > 0) {}
+  }
+}
+
+void fiveman_process_state_sample_process(fiveman_process_state * state) {
+  fiveman_process_statistics_sample new_sample;
+  bzero(&new_sample, sizeof(fiveman_process_statistics_sample));
+  fiveman_sample_info(&state->sample, &new_sample);
+  memcpy(&state->sample, &new_sample, sizeof(fiveman_process_statistics_sample));
 }

@@ -52,9 +52,11 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
     printw(BOTTOM_BAR_TEXT);
     move(0, 0);
     printw("Procfile: %s Directory: %s", procfile, directory);
+    fiveman_process_state_table_reap_zombie_processes(process_state);
     fiveman_process_state_table_converge(process_state, directory);
     cur_row = 0;
     while(state != NULL){
+      fiveman_process_state_child_process_status(state);
       states[cur_row] = state;
       fiveman_process_state_status_string(buffer, buffer_len, inum, state);
       move(inum, 0);

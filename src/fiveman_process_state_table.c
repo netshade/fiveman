@@ -1,5 +1,6 @@
 #include "fiveman_process_state_table.h"
 
+fiveman_process_state * application_state_table = NULL;
 
 fiveman_process_state * fiveman_process_state_table_allocate(fiveman_instruction * instr, int starting_port){
   fiveman_process_state * head       = NULL;
@@ -70,4 +71,30 @@ int fiveman_process_state_table_num_alive(fiveman_process_state * state){
     cur_state = cur_state->next;
   }
   return n;
+}
+
+void fiveman_process_state_table_mark_as_application_table(fiveman_process_state * table) {
+  application_state_table = table;
+}
+
+void fiveman_process_state_table_close_pipes(int close_in, int close_out, fiveman_process_state * table) {
+  fiveman_process_state_table_close_sibling_pipes(close_in, close_out, NULL, table);
+}
+
+void fiveman_process_state_table_close_sibling_pipes(int close_in, int close_out, fiveman_process_state * child, fiveman_process_state * table) {
+  fiveman_process_state * cur_state = table;
+  while(cur_state != NULL){
+    if(child != cur_state){
+      fiveman_process_state_close_pipes(close_in, close_out, cur_state);
+    }
+    cur_state = cur_state->next;
+  }
+}
+
+void fiveman_process_state_table_reap_zombie_processes(fiveman_process_state * table){
+  fiveman_process_state * cur_state = table;
+  while(cur_state != NULL){
+    fiveman_process_state_reap_zombie_processes(cur_state);
+    cur_state = cur_state->next;
+  }
 }
