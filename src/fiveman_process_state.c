@@ -14,6 +14,8 @@
 #include "ncurses_screen.h"
 #include "signal_handlers.h"
 
+fiveman_process_state * state_in_fork = NULL;
+
 fiveman_process_state * fiveman_process_state_allocate(fiveman_instruction * instr, int port){
   fiveman_process_state * state = calloc(1, sizeof(fiveman_process_state));
   assert(state != NULL);
@@ -63,12 +65,13 @@ void fiveman_process_state_initialize(fiveman_process_state * state){
   mktemp(state->stderr);
   assert(state->stderr != NULL);
 
-  bzero(&state->sample, sizeof(fiveman_process_statistics_sample));
+  fiveman_process_state_clear_sample(state);
 }
 
-fiveman_process_state * state_in_fork = NULL;
+
 
 pid_t fiveman_process_state_start(fiveman_process_state * state, char * directory){
+  fiveman_process_state_clear_sample(state);
   state_in_fork = NULL;
   suspend_screen();
   const char * existing_path = getenv("PATH");
@@ -110,7 +113,6 @@ pid_t fiveman_process_state_start(fiveman_process_state * state, char * director
       state_in_fork->pid = subchild;
       int status = 0;
       install_child_kill_handler();
-      bzero(&state->sample, sizeof(fiveman_process_statistics_sample));
       while(1){
         waitpid(subchild, &status, WNOHANG);
         if(!fiveman_process_state_is_alive(state)){
@@ -274,7 +276,6 @@ void fiveman_process_state_converge_start(fiveman_process_state * state, char * 
       // Do nothing, already started
     } else {
       // Start process, had previously stopped and should be started again
-      close(state->child_write_fd);
       state->pid = fiveman_process_state_start(state, directory);
       time(&state->last_state_change);
 
@@ -405,5 +406,13 @@ void fiveman_process_state_sample_process(fiveman_process_state * state) {
   fiveman_process_statistics_sample new_sample;
   bzero(&new_sample, sizeof(fiveman_process_statistics_sample));
   fiveman_sample_info(&state->sample, &new_sample);
-  memcpy(&state->sample, &new_sample, sizeof(fiveman_process_statistics_sample));
+  fiveman_process_state_set_sample(state, &new_sample);
+}
+
+void fiveman_process_state_clear_sample(fiveman_process_state * state) {
+  bzero(&state->sample, sizeof(fiveman_process_statistics_sample));
+}
+
+void fiveman_process_state_set_sample(fiveman_process_state * state, fiveman_process_statistics_sample * sample){
+  memcpy(&state->sample, sample, sizeof(fiveman_process_statistics_sample));
 }

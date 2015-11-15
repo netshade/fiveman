@@ -54,6 +54,8 @@ void fiveman_process_state_initialize_pipes(fiveman_process_state * state);
 void fiveman_process_state_close_pipes(int close_in, int clouse_out, fiveman_process_state * state);
 void fiveman_process_state_reap_zombie_processes(fiveman_process_state * state);
 void fiveman_process_state_sample_process(fiveman_process_state * state);
+void fiveman_process_state_clear_sample(fiveman_process_state * state);
+void fiveman_process_state_set_sample(fiveman_process_state * state, fiveman_process_statistics_sample * sample);
 
 extern fiveman_process_state * state_in_fork;
 
