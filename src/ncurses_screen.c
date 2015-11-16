@@ -11,13 +11,6 @@
 bool exit_fiveman = FALSE;
 bool exit_fiveman_immediately = FALSE;
 
-#define BYTES_PER_KILOBYTE 1024L
-#define BYTES_PER_MEGABYTE (BYTES_PER_KILOBYTE * 1024L)
-#define BYTES_PER_GIGABYTE (BYTES_PER_MEGABYTE * 1024L)
-#define BYTES_PER_TERABYTE (BYTES_PER_GIGABYTE * 1024L)
-#define BYTES_PER_PETABYTE (BYTES_PER_TERABYTE * 1024L)
-#define BYTES_PER_EXABYTE (BYTES_PER_TERABYTE * 1024L)
-
 void byte_measurement_string(long long measurement_in_bytes, char * buffer, size_t buf_size) {
   char * suffix = "B";
   double amount = (double) measurement_in_bytes;

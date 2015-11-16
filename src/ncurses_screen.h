@@ -31,7 +31,7 @@ typedef struct {
 } fiveman_ncurses_screen_extents;
 
 
-void byte_measurement_string(int measurement_in_bytes, char * buffer, size_t buf_size);
+void byte_measurement_string(long long measurement_in_bytes, char * buffer, size_t buf_size);
 void initialize_screen_entry(fiveman_process_state * state, fiveman_ncurses_screen_entry * screen_entry);
 void update_screen_entry(fiveman_process_state * state, fiveman_ncurses_screen_entry * screen_entry);
 void draw_screen_entry(fiveman_ncurses_screen_entry * entry, fiveman_ncurses_screen_entry * prev_entry, int row, bool highlighted, fiveman_ncurses_screen_extents * extents, bool force_redraw);
