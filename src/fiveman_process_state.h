@@ -10,6 +10,14 @@
 #include "fiveman_process_intent.h"
 #include "fiveman_process_statistics.h"
 
+typedef enum {
+  FIVEMAN_PROCESS_STOPPED = 0,
+  FIVEMAN_PROCESS_RUNNING,
+  FIVEMAN_PROCESS_STARTING_UP,
+  FIVEMAN_PROCESS_SHUTTING_DOWN,
+  FIVEMAN_PROCESS_UNKNOWN
+} FIVEMAN_PROCESS_CURRENT_ACTIVITY;
+
 typedef struct fiveman_process_state {
   const fiveman_instruction * instruction;
   fiveman_process_intent intent;
@@ -37,7 +45,8 @@ pid_t fiveman_process_state_stop(fiveman_process_state * state);
 const char * fiveman_get_pager();
 void fiveman_process_state_child_process_status(fiveman_process_state * state);
 void fiveman_process_state_page_file(fiveman_process_state * state, char * file);
-void fiveman_process_state_lifetime(fiveman_process_state * state, char * buf, size_t buf_size);
+int fiveman_process_state_lifetime(fiveman_process_state * state);
+void fiveman_process_state_lifetime_str(fiveman_process_state * state, char * buf, size_t buf_size);
 void fiveman_process_state_page_stdout(fiveman_process_state * state);
 void fiveman_process_state_page_stderr(fiveman_process_state * state);
 void fiveman_process_state_change_intent(fiveman_process_state * state, FIVEMAN_INTENT intent);
@@ -56,6 +65,7 @@ void fiveman_process_state_reap_zombie_processes(fiveman_process_state * state);
 void fiveman_process_state_sample_process(fiveman_process_state * state);
 void fiveman_process_state_clear_sample(fiveman_process_state * state);
 void fiveman_process_state_set_sample(fiveman_process_state * state, fiveman_process_statistics_sample * sample);
+FIVEMAN_PROCESS_CURRENT_ACTIVITY fiveman_process_state_current_activity(fiveman_process_state * state);
 
 extern fiveman_process_state * state_in_fork;
 

@@ -156,8 +156,8 @@ void fiveman_process_state_child_process_status(fiveman_process_state * state) {
     FD_ZERO (&set);
     FD_SET (state->host_read_fd, &set);
     timeout.tv_sec = 0;
-    timeout.tv_usec = 100000;
-    const int max_samples_per_read = 20;
+    timeout.tv_usec = 10000;
+    const int max_samples_per_read = 5;
     const size_t sample_buffer_size = sizeof(fiveman_process_statistics_sample) * max_samples_per_read;
     fiveman_process_statistics_sample sample_buffer[max_samples_per_read];
     bzero(sample_buffer, sample_buffer_size);
@@ -173,7 +173,7 @@ void fiveman_process_state_child_process_status(fiveman_process_state * state) {
         break;
       } else {
         nidx = (nread / sizeof(fiveman_process_statistics_sample)) - 1;
-        if(nidx > 0){
+        if(nidx >= 0){
           memcpy(&state->sample, &sample_buffer[nidx], sizeof(fiveman_process_statistics_sample));
         }
       }
@@ -224,10 +224,15 @@ void fiveman_process_state_page_file(fiveman_process_state * state, char * file)
   }
 }
 
-void fiveman_process_state_lifetime(fiveman_process_state * state, char * buf, size_t buf_size){
+int fiveman_process_state_lifetime(fiveman_process_state * state){
   time_t cur;
   time(&cur);
   int distance = cur - state->last_state_change;
+  return distance;
+}
+
+void fiveman_process_state_lifetime_str(fiveman_process_state * state, char * buf, size_t buf_size){
+  int distance = fiveman_process_state_lifetime(state);
   double ratio;
   char * label;
   if( (distance / SECONDS_PER_YEAR) >= 1 ) {
@@ -342,7 +347,7 @@ int fiveman_process_state_status_string(char * buffer, size_t buf_len, int index
   } else {
     title = INACTIVE_STATUS_TITLE;
   }
-  fiveman_process_state_lifetime(state, age_state_buf, age_state_buf_len);
+  fiveman_process_state_lifetime_str(state, age_state_buf, age_state_buf_len);
   if(fiveman_process_state_stdout_has_new_entries(state)){
     stdout_info = "[stdout]";
   }
@@ -415,4 +420,22 @@ void fiveman_process_state_clear_sample(fiveman_process_state * state) {
 
 void fiveman_process_state_set_sample(fiveman_process_state * state, fiveman_process_statistics_sample * sample){
   memcpy(&state->sample, sample, sizeof(fiveman_process_statistics_sample));
+}
+
+FIVEMAN_PROCESS_CURRENT_ACTIVITY fiveman_process_state_current_activity(fiveman_process_state * state) {
+  if(state->intent.intent == INTENT_START){
+    if(fiveman_process_state_is_alive(state)){
+      return FIVEMAN_PROCESS_RUNNING;
+    } else {
+      return FIVEMAN_PROCESS_STARTING_UP;
+    }
+  } else if(state->intent.intent == INTENT_STOP){
+    if(fiveman_process_state_is_alive(state)){
+      return FIVEMAN_PROCESS_SHUTTING_DOWN;
+    } else {
+      return FIVEMAN_PROCESS_STOPPED;
+    }
+  } else {
+    return FIVEMAN_PROCESS_UNKNOWN;
+  }
 }
