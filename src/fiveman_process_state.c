@@ -186,10 +186,11 @@ pid_t fiveman_process_state_stop(fiveman_process_state * state){
   return fiveman_process_state_signal(state, SIGTERM);
 }
 
+const char * fiveman_default_pager = "more";
+
 const char * fiveman_get_pager(){
-  char * env_pager     = getenv("PAGER");
-  char * default_pager = "more";
-  char * pager         = default_pager;
+  const char * env_pager     = getenv("PAGER");
+  const char * pager         = fiveman_default_pager;
   if(env_pager != NULL && strlen(env_pager) > 0){
     pager = env_pager;
   }
