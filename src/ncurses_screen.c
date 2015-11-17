@@ -180,8 +180,8 @@ void draw_screen_entry(fiveman_ncurses_screen_entry * entry, fiveman_ncurses_scr
   fiveman_process_state_lifetime_str(entry->state, age_str, extents->age_size);
   snprintf(cpu_str, extents->cpu_size, "%i%%", entry->sample.cpu_usage);
   byte_measurement_string(entry->sample.memory_usage, mem_str, extents->mem_size);
-  snprintf(net_str, extents->net_size, "0 bytes");
-  snprintf(io_str, extents->io_size, "0 bytes");
+  byte_measurement_string(entry->sample.net_total_rate, net_str, extents->net_size);
+  byte_measurement_string(entry->sample.io_total_rate, io_str, extents->io_size);
   if(entry->stdout_active){
     snprintf(stdout_str, extents->stdout_size, "*");
   } else {

@@ -11,6 +11,12 @@ typedef struct {
   uint64_t total_time;
   uint32_t cpu_usage;
   uint64_t memory_usage;
+  uint64_t io_read;
+  uint64_t io_write;
+  uint64_t io_total_rate;
+  uint64_t net_read;
+  uint64_t net_write;
+  uint64_t net_total_rate;
 } fiveman_process_statistics_sample;
 
 void fiveman_sample_info(fiveman_process_statistics_sample * previous_sample, fiveman_process_statistics_sample * sample);

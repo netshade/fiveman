@@ -48,16 +48,23 @@ void fiveman_sample_info(fiveman_process_statistics_sample * previous_sample, fi
 
   uint64_t now_time = TimeValToMicroseconds(&now);
   uint64_t total_time = TimeValToMicroseconds(&task_timeval);
+  uint64_t time_delta = now_time - previous_sample->sample_time;
 
   sample->sample_time = now_time;
   sample->total_time = total_time;
   if(previous_sample->sample_time > 0){
     uint64_t total_delta = sample->total_time - previous_sample->total_time;
-    uint64_t time_delta = sample->sample_time - previous_sample->sample_time;
     double cpu_usage = (((double)total_delta / (double)time_delta) * 100.0);
     sample->cpu_usage = lround(cpu_usage);
   }
   sample->memory_usage = task_info_data.resident_size;
+
+  struct rusage usage;
+  assert(getrusage(RUSAGE_SELF, &usage) == 0);
+  sample->io_read = usage.ru_inblock;
+  sample->io_write = usage.ru_oublock;
+  long delta = (sample->io_read + sample->io_write) - (previous_sample->io_read + previous_sample->io_write);
+  sample->io_total_rate = lround((double)delta / (double)time_delta);
 }
 
 
