@@ -7,13 +7,13 @@
 #include "fiveman_instruction.h"
 #include "fiveman_process_state.h"
 #include "fiveman_process_state_table.h"
+#include "fiveman_process_statistics.h"
 #include "ncurses_screen.h"
 #include "procfile.h"
 #include "signal_handlers.h"
 
 int main(int argc, char ** argv){
   install_signal_handlers();
-
   char * directory                   = NULL;
   char * procfile                    = NULL;
   fiveman_command * cmd              = NULL;

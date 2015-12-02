@@ -80,5 +80,6 @@ int parse_procfile(const char * const procfile_path, fiveman_instruction ** inst
     assert(head == NULL);
   }
   *instructions = head;
+  fclose(file);
   return found;
 }

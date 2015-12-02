@@ -1,13 +1,21 @@
 CC=gcc
 CFLAGS=-c -Wall
-LDFLAGS=-lncurses
+LDFLAGS=-lncurses -ldtrace
 OBJDIR=build
 PREFIX=/usr/local
 BINDIR=$(PREFIX)/bin
 INSTALL=install
+CHMOD=chmod
+CHOWN=chown
+ROOT=root
+SUDO=sudo
+TEST=test
 
-fiveman: build/main.o build/fiveman_instruction.o build/fiveman_process_state.o build/fiveman_process_state_table.o build/ncurses_screen.o build/options.o build/procfile.o build/signal_handlers.o build/fiveman_process_statistics_mac.o
+fiveman: clean_binary build/main.o build/fiveman_instruction.o build/fiveman_process_state.o build/fiveman_process_state_table.o build/ncurses_screen.o build/options.o build/procfile.o build/signal_handlers.o build/fiveman_process_statistics_mac.o
 	$(CC) $(LDFLAGS) -o fiveman $(OBJDIR)/*.o
+	$(CHMOD) 4750 ./fiveman
+	$(SUDO) $(CHOWN) $(ROOT) fiveman
+
 
 debug: CFLAGS += -g
 debug: LDFLAGS += -g
@@ -16,9 +24,13 @@ debug: fiveman
 install: fiveman
 	$(INSTALL) fiveman $(BINDIR)/fiveman
 
-clean:
+clean_binary:
+	$(TEST) -f fiveman && $(SUDO) rm fiveman || sh -c "exit 0"
+
+clean_objects:
 	rm $(OBJDIR)/*.o
-	rm fiveman
+
+clean: clean_binary clean_objects
 
 build/main.o: src/main.c
 	$(CC) $(CFLAGS) -I src/ -o build/main.o src/main.c

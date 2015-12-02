@@ -1,10 +1,228 @@
 #include "fiveman_process_statistics.h"
 
 #include <assert.h>
+#include <dtrace.h>
 #include <mach/mach.h>
 #include <math.h>
+#include <stdint.h>
 #include <sys/time.h>
 #include <unistd.h>
+
+typedef enum {
+  IO_RECORD_DEV_READ  = 1,
+  IO_RECORD_DEV_WRITE = 2,
+  IO_RECORD_FS_READ   = 3,
+  IO_RECORD_FS_WRITE  = 4,
+  IO_RECORD_NET_READ  = 5,
+  IO_RECORD_NET_WRITE = 6,
+  IO_RECORD_UNKNOWN
+} IO_RECORD_TYPE;
+
+// Dtrace setup
+typedef struct {
+  uint32_t block_size;
+  uint64_t start;
+  uint32_t type;
+} io_record;
+
+typedef struct {
+  uint64_t start;
+  uint64_t read;
+  uint64_t write;
+} io_counter;
+
+static io_counter fs;
+static io_counter net;
+static io_counter dev;
+
+// This is the program.
+static const char *progstr = "\
+typedef struct {\
+  uint32_t block_size;\
+  uint64_t start;\
+  uint32_t type;\
+} io_record;\
+io_record record_io;\
+io_record record_fs;\
+io_record record_net;\
+io:::start /pid == $1/{\
+  self->io_start = timestamp;\
+}\
+io:::done /self->io_start/ {\
+  record_io.block_size = args[0]->b_bcount;\
+  record_io.type = args[0]->b_flags & B_READ ? 1 : 2;\
+  record_io.start = self->io_start;\
+  self->io_start = 0;\
+  trace(record_io);\
+}\
+\
+fbt::hfs_vnop_read:entry / pid == $1/\
+{\
+	this->read = (struct vnop_read_args *)arg0;\
+	self->blksize = this->read->a_uio->uio_resid_64;\
+  self->fs_type = 3;\
+	self->fs_start = timestamp;\
+}\
+\
+fbt::hfs_vnop_write:entry / pid == $1/\
+{\
+	this->write = (struct vnop_write_args *)arg0;\
+	self->blksize = this->write->a_uio->uio_resid_64;\
+  self->fs_type = 4;\
+	self->fs_start = timestamp;\
+}\
+\
+fbt::hfs_vnop_read:return,\
+fbt::hfs_vnop_write:return\
+/self->fs_start/\
+{\
+  record_fs.block_size = self->blksize;\
+  record_fs.type = self->fs_type;\
+  record_fs.start = self->fs_start;\
+  self->fs_start = 0;\
+  self->fs_type = 0;\
+  trace(record_fs);\
+}\
+ip:::send / pid == $1 / {\
+  record_net.block_size = args[2]->ip_plength;\
+  record_net.type = 6;\
+  record_net.start = timestamp;\
+  trace(record_net);\
+}\
+ip:::receive / pid == $1 / {\
+  record_net.block_size = args[2]->ip_plength;\
+  record_net.type = 5;\
+  record_net.start = timestamp;\
+  trace(record_net);\
+}";
+
+static dtrace_hdl_t *dtp = NULL;
+struct ps_prochandle * proc = NULL;
+
+static int dorec(const dtrace_probedata_t *data, const dtrace_recdesc_t *rec, void *arg)
+{
+	dtrace_actkind_t act;
+  io_record * addr;
+	if (rec == NULL) return (DTRACE_CONSUME_NEXT);
+	act = rec->dtrd_action;
+	addr = (io_record *)data->dtpda_data;
+  if(act == DTRACEACT_DIFEXPR && rec->dtrd_size > 0){ // a trace w/ actual values
+    io_counter * counter = NULL;
+    switch(addr->type){
+    case IO_RECORD_DEV_READ:
+      counter = &dev;
+      counter->read += addr->block_size;
+      break;
+    case IO_RECORD_DEV_WRITE:
+      counter = &dev;
+      counter->write += addr->block_size;
+      break;
+    case IO_RECORD_FS_READ:
+      counter = &fs;
+      counter->read += addr->block_size;
+      break;
+    case IO_RECORD_FS_WRITE:
+      counter = &fs;
+      counter->write += addr->block_size;
+      break;
+    case IO_RECORD_NET_READ:
+      counter = &net;
+      counter->read += addr->block_size;
+      break;
+    case IO_RECORD_NET_WRITE:
+      counter = &net;
+      counter->write += addr->block_size;
+      break;
+    }
+  }
+	if (act == DTRACEACT_EXIT) {
+		return (DTRACE_CONSUME_NEXT);
+	}
+	return (DTRACE_CONSUME_THIS);
+}
+
+// set the option, otherwise print an error & return -1
+int
+set_opt(dtrace_hdl_t *dtp, const char *opt, const char *value)
+{
+  if (-1 == dtrace_setopt(dtp, opt, value)) {
+    fprintf(stderr, "Failed to set '%1$s' to '%2$s'.\n", opt, value);
+    return (-1);
+  }
+  return (0);
+}
+
+// set all the options, otherwise return an error
+int
+set_opts(dtrace_hdl_t *dtp)
+{
+  return (set_opt(dtp, "strsize", "4096")
+          | set_opt(dtp, "bufsize", "4m")
+          | set_opt(dtp, "aggsize", "512k")
+          | set_opt(dtp, "specsize", "512k")
+          | set_opt(dtp, "aggrate", "3000msec")
+          | set_opt(dtp, "switchrate", "10hz")
+          | set_opt(dtp, "arch", "x86_64"));
+}
+
+void fiveman_init_sampling(pid_t pid){
+
+  int err;
+  dtrace_proginfo_t info;
+
+  dtrace_prog_t *prog;
+
+  dtp = dtrace_open(DTRACE_VERSION, DTRACE_O_LP64, &err);
+  assert(dtp != NULL);
+
+  err = set_opts(dtp);
+  assert(err != -1);
+
+  char pid_str[1024];
+  bzero(pid_str, sizeof(char) * 1024);
+  snprintf(pid_str, 1024, "%i", pid);
+
+  proc = dtrace_proc_grab(dtp, pid, 0);
+  assert(proc != NULL);
+
+  char * args[2] = {
+    "/bin/sh",
+    pid_str
+  };
+
+  prog = dtrace_program_strcompile(dtp, progstr, DTRACE_PROBESPEC_NAME, 0, 2, args);
+  if(prog == NULL){
+    printf("ERROR2: bad program: %s\n", dtrace_errmsg(NULL,err));
+  }
+  assert(prog != NULL);
+
+  err = dtrace_program_exec(dtp, prog, &info);
+  assert(err != -1);
+
+  err = dtrace_go(dtp);
+  assert(err != -1);
+
+  dtrace_proc_continue(dtp, proc);
+
+}
+
+void fiveman_teardown_sampling(pid_t pid) {
+  dtrace_proc_continue(dtp, proc);
+  dtrace_proc_release(dtp, proc);
+  dtrace_stop(dtp);
+  dtrace_close(dtp);
+}
+
+
+void fiveman_sampling_sleep(int last_slept){
+  time_t now;
+  time(&now);
+  int delta = now - last_slept;
+  dtrace_sleep(dtp);
+  if(delta < 1){
+    sleep(1);
+  }
+}
 
 // Most of this is shamefully taken from Chrome
 
@@ -21,7 +239,16 @@ uint64_t TimeValToMicroseconds(const struct timeval * tv) {
   return tv->tv_sec * kMicrosecondsPerSecond + tv->tv_usec;
 }
 
+
 void fiveman_sample_info(fiveman_process_statistics_sample * previous_sample, fiveman_process_statistics_sample * sample) {
+  int status = dtrace_status(dtp);
+  if (status == DTRACE_STATUS_OKAY) {
+    status = dtrace_work(dtp, NULL, NULL, dorec, NULL);
+  } else if (status != DTRACE_STATUS_NONE) {
+    // no -op
+  }
+
+  fprintf(stderr, "Sampled! %i\n", status);
   assert(fiveman_sampled_task != MACH_PORT_NULL);
   struct task_basic_info_64 task_info_data;
   struct task_thread_times_info thread_info_data;
@@ -49,6 +276,10 @@ void fiveman_sample_info(fiveman_process_statistics_sample * previous_sample, fi
   uint64_t now_time = TimeValToMicroseconds(&now);
   uint64_t total_time = TimeValToMicroseconds(&task_timeval);
   uint64_t time_delta = now_time - previous_sample->sample_time;
+  uint32_t time_delta_in_seconds = time_delta / kMicrosecondsPerSecond;
+  if(time_delta_in_seconds == 0){
+    time_delta_in_seconds = 1;
+  }
 
   sample->sample_time = now_time;
   sample->total_time = total_time;
@@ -59,12 +290,20 @@ void fiveman_sample_info(fiveman_process_statistics_sample * previous_sample, fi
   }
   sample->memory_usage = task_info_data.resident_size;
 
-  struct rusage usage;
-  assert(getrusage(RUSAGE_SELF, &usage) == 0);
-  sample->io_read = usage.ru_inblock;
-  sample->io_write = usage.ru_oublock;
-  long delta = (sample->io_read + sample->io_write) - (previous_sample->io_read + previous_sample->io_write);
-  sample->io_total_rate = lround((double)delta / (double)time_delta);
+
+  sample->io_read_rate = dev.read / time_delta_in_seconds;
+  sample->io_write_rate = dev.write / time_delta_in_seconds;
+  sample->net_read_rate = net.read / time_delta_in_seconds;
+  sample->net_write_rate = net.write / time_delta_in_seconds;
+  sample->fs_read_rate = fs.read / time_delta_in_seconds;
+  sample->fs_write_rate = fs.write / time_delta_in_seconds;
+
+  net.read = 0;
+  net.write = 0;
+  dev.read = 0;
+  dev.write = 0;
+  fs.read = 0;
+  fs.write = 0;
 }
 
 

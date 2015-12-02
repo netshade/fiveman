@@ -11,7 +11,7 @@
 bool exit_fiveman = FALSE;
 bool exit_fiveman_immediately = FALSE;
 
-void byte_measurement_string(long long measurement_in_bytes, char * buffer, size_t buf_size) {
+int byte_measurement_string(long long measurement_in_bytes, char * buffer, size_t buf_size) {
   char * suffix = "B";
   double amount = (double) measurement_in_bytes;
   if( (measurement_in_bytes / BYTES_PER_EXABYTE) >= 1 ){
@@ -34,7 +34,20 @@ void byte_measurement_string(long long measurement_in_bytes, char * buffer, size
     suffix = "kB";
   }
   amount = round(amount * 100.0) / 100.0;
-  snprintf(buffer, buf_size, "%g%s", amount, suffix);
+  return snprintf(buffer, buf_size, "%g%s", amount, suffix);
+}
+
+int readwrite_byte_measurement_string(long long read_measurement, long long write_measurement, char * buffer, size_t buf_size){
+  int written = byte_measurement_string(read_measurement, buffer, buf_size);
+  if(written < buf_size){
+    buffer[written]='/';
+    written += 1;
+    size_t remainder = buf_size - written;
+    if(remainder > 0){
+      written += byte_measurement_string(write_measurement, &buffer[written], remainder);
+    }
+  }
+  return written;
 }
 
 void update_screen_extents(fiveman_ncurses_screen_extents * extents, int maxy, int maxx) {
@@ -61,6 +74,9 @@ void update_screen_extents(fiveman_ncurses_screen_extents * extents, int maxy, i
 
   extents->io_size = 12;
   total -= extents->io_size + extents->spacing_size;
+
+  extents->fs_size = 12;
+  total -= extents->fs_size + extents->spacing_size;
 
   extents->stdout_size = 6;
   total -= extents->stdout_size + extents->spacing_size;
@@ -119,12 +135,16 @@ void draw_headers(fiveman_ncurses_screen_extents * extents, int row) {
   col_head += extents->mem_size + extents->spacing_size;
 
   move(row, col_head);
-  addstr("NET");
+  addstr("NET R/W");
   col_head += extents->net_size + extents->spacing_size;
 
   move(row, col_head);
-  addstr("IO");
+  addstr("IO R/W");
   col_head += extents->io_size + extents->spacing_size;
+
+  move(row, col_head);
+  addstr("FS R/W");
+  col_head += extents->fs_size + extents->spacing_size;
 
   move(row, col_head);
   addstr("STDOUT");
@@ -153,6 +173,8 @@ void draw_screen_entry(fiveman_ncurses_screen_entry * entry, fiveman_ncurses_scr
   bzero(net_str, extents->net_size + 1);
   char io_str[extents->io_size + 1];
   bzero(io_str, extents->io_size + 1);
+  char fs_str[extents->io_size + 1];
+  bzero(fs_str, extents->fs_size + 1);
   char stdout_str[extents->stdout_size + 1];
   bzero(stdout_str, extents->stdout_size + 1);
   char stderr_str[extents->stderr_size + 1];
@@ -180,8 +202,10 @@ void draw_screen_entry(fiveman_ncurses_screen_entry * entry, fiveman_ncurses_scr
   fiveman_process_state_lifetime_str(entry->state, age_str, extents->age_size);
   snprintf(cpu_str, extents->cpu_size, "%i%%", entry->sample.cpu_usage);
   byte_measurement_string(entry->sample.memory_usage, mem_str, extents->mem_size);
-  byte_measurement_string(entry->sample.net_total_rate, net_str, extents->net_size);
-  byte_measurement_string(entry->sample.io_total_rate, io_str, extents->io_size);
+  readwrite_byte_measurement_string(entry->sample.io_read_rate, entry->sample.io_write_rate, io_str, extents->io_size);
+  readwrite_byte_measurement_string(entry->sample.net_read_rate, entry->sample.net_write_rate, net_str, extents->net_size);
+  readwrite_byte_measurement_string(entry->sample.fs_read_rate, entry->sample.fs_write_rate, fs_str, extents->fs_size);
+
   if(entry->stdout_active){
     snprintf(stdout_str, extents->stdout_size, "*");
   } else {
@@ -234,6 +258,10 @@ void draw_screen_entry(fiveman_ncurses_screen_entry * entry, fiveman_ncurses_scr
   col_head += extents->io_size + extents->spacing_size;
 
   move(row, col_head);
+  addstr(fs_str);
+  col_head += extents->fs_size + extents->spacing_size;
+
+  move(row, col_head);
   addstr(stdout_str);
   col_head += extents->stdout_size + extents->spacing_size;
 
@@ -255,8 +283,8 @@ void setup_screen(){
   nocbreak();
   noecho();
   raw();
-  nodelay(stdscr, TRUE);
-  //halfdelay(10);
+  //nodelay(stdscr, TRUE);
+  halfdelay(10);
   curs_set(FALSE);
 }
 

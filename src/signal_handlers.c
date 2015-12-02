@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "fiveman_process_state.h"
+#include "fiveman_process_statistics.h"
 #include "fiveman_process_state_table.h"
 #include "ncurses_screen.h"
 
@@ -23,6 +24,7 @@ void handle_sigint(int sig){
 
 void handle_childkill(int sig) {
   if(state_in_fork != NULL){
+    fiveman_teardown_sampling(state_in_fork->pid);
     kill(state_in_fork->pid, sig);
   }
   exit(0);
