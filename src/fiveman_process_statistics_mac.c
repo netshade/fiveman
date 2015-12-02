@@ -45,56 +45,56 @@ typedef struct {\
 io_record record_io;\
 io_record record_fs;\
 io_record record_net;\
-io:::start /pid == $1/{\
-  self->io_start = timestamp;\
-}\
-io:::done /self->io_start/ {\
+io:::done,io:::wait-done /pid == $1/{\
   record_io.block_size = args[0]->b_bcount;\
-  record_io.type = args[0]->b_flags & B_READ ? 1 : 2;\
-  record_io.start = self->io_start;\
-  self->io_start = 0;\
+  record_io.type = (args[0]->b_flags & B_WRITE) ? 2 : 1;\
+  record_io.start = timestamp;\
   trace(record_io);\
 }\
 \
-fbt::hfs_vnop_read:entry / pid == $1/\
-{\
-	this->read = (struct vnop_read_args *)arg0;\
-	self->blksize = this->read->a_uio->uio_resid_64;\
-  self->fs_type = 3;\
-	self->fs_start = timestamp;\
-}\
-\
-fbt::hfs_vnop_write:entry / pid == $1/\
-{\
-	this->write = (struct vnop_write_args *)arg0;\
-	self->blksize = this->write->a_uio->uio_resid_64;\
-  self->fs_type = 4;\
-	self->fs_start = timestamp;\
-}\
-\
-fbt::hfs_vnop_read:return,\
-fbt::hfs_vnop_write:return\
-/self->fs_start/\
-{\
-  record_fs.block_size = self->blksize;\
-  record_fs.type = self->fs_type;\
-  record_fs.start = self->fs_start;\
-  self->fs_start = 0;\
-  self->fs_type = 0;\
+fsinfo:::read / pid == $1 / { \
+  record_fs.block_size = arg1;\
+  record_fs.type = 3;\
+  record_fs.start = timestamp;\
   trace(record_fs);\
 }\
-ip:::send / pid == $1 / {\
-  record_net.block_size = args[2]->ip_plength;\
-  record_net.type = 6;\
-  record_net.start = timestamp;\
-  trace(record_net);\
+fsinfo:::write / pid == $1 / { \
+  record_fs.block_size = arg1;\
+  record_fs.type = 4;\
+  record_fs.start = timestamp;\
+  trace(record_fs);\
 }\
-ip:::receive / pid == $1 / {\
-  record_net.block_size = args[2]->ip_plength;\
+syscall::read*:entry, syscall::recv*:entry \
+/(fds[arg0].fi_fs == \"sockfs\" || fds[arg0].fi_name == \"<socket>\") && pid == $1/\
+{\
+	self->socket = 1;\
+}\
+\
+syscall::read*:return, syscall::recv*:return /self->socket && pid == $1 && arg0 > 0/\
+{\
+  record_net.block_size = arg0;\
   record_net.type = 5;\
   record_net.start = timestamp;\
   trace(record_net);\
-}";
+	self->socket = 0;\
+}\
+\
+syscall::write*:entry, syscall::send*:entry\
+/(fds[arg0].fi_fs == \"sockfs\" || fds[arg0].fi_name == \"<socket>\") && pid == $1/\
+{\
+	self->socket = 1;\
+}\
+\
+syscall::write*:return, syscall::send*:return\
+/self->socket && pid == $1 && arg0 > 0/\
+{\
+  record_net.block_size = arg0;\
+  record_net.type = 6;\
+  record_net.start = timestamp;\
+  trace(record_net);\
+	self->socket = 0;\
+}\
+";
 
 static dtrace_hdl_t *dtp = NULL;
 struct ps_prochandle * proc = NULL;
