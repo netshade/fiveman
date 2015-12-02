@@ -20,8 +20,9 @@ make install
 
 Notes:
 
-* Only tested on Mac OS X Yosemite so far. May compile on Linux, but I haven't tested yet.
+* Only tested on Mac OS X Yosemite so far. 
 * Screen refresh slowness is a known issue
 * Creates a `setuid root` binary currently. Processes created drop privilege, but still. ( Done to allow dtrace to inspect created processes on Mac OS X )
 * If Dtrace fails, creates orphaned processes.
 * Values reported by Dtrace inspection are not currently exact, should be marshalled into correct time windows or discarded
+* Does not handle small screen sizes very well, values should compact better
