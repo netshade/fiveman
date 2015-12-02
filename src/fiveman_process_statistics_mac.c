@@ -248,7 +248,6 @@ void fiveman_sample_info(fiveman_process_statistics_sample * previous_sample, fi
     // no -op
   }
 
-  fprintf(stderr, "Sampled! %i\n", status);
   assert(fiveman_sampled_task != MACH_PORT_NULL);
   struct task_basic_info_64 task_info_data;
   struct task_thread_times_info thread_info_data;
