@@ -3,9 +3,8 @@
 
 #include <getopt.h>
 
-typedef struct {
-  const char * name;
-} fiveman_command;
+#include "fiveman_types.h"
+
 
 static struct option long_options[] = {
   { "procfile", required_argument, NULL, 'f' },

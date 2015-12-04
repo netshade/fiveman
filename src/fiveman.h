@@ -25,4 +25,6 @@
 #define BYTES_PER_PETABYTE (BYTES_PER_TERABYTE * 1024L)
 #define BYTES_PER_EXABYTE (BYTES_PER_TERABYTE * 1024L)
 
+extern char ** environ;
+
 #endif

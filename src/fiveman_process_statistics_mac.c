@@ -18,6 +18,18 @@ typedef enum {
   IO_RECORD_UNKNOWN
 } IO_RECORD_TYPE;
 
+
+#define TIME_VALUE_TO_TIMEVAL(a, r) do {  \
+		(r)->tv_sec = (a)->seconds;							\
+		(r)->tv_usec = (a)->microseconds;				\
+	} while (0)
+
+const int kMicrosecondsPerSecond = 1000000;
+
+uint64_t TimeValToMicroseconds(const struct timeval * tv) {
+  return tv->tv_sec * kMicrosecondsPerSecond + tv->tv_usec;
+}
+
 // Dtrace setup
 typedef struct {
   uint32_t block_size;
@@ -31,9 +43,16 @@ typedef struct {
   uint64_t write;
 } io_counter;
 
-static io_counter fs;
-static io_counter net;
-static io_counter dev;
+typedef struct {
+  io_counter fs;
+  io_counter net;
+  io_counter dev;
+  task_t fiveman_sampled_task;
+  dtrace_hdl_t * dtp;
+  dtrace_prog_t * prog;
+  dtrace_proginfo_t info;
+  struct ps_prochandle * proc;
+} mac_sampling_data;
 
 // This is the program.
 static const char *progstr = "\
@@ -96,11 +115,13 @@ syscall::write*:return, syscall::send*:return\
 }\
 ";
 
-static dtrace_hdl_t *dtp = NULL;
-struct ps_prochandle * proc = NULL;
+
 
 static int dorec(const dtrace_probedata_t *data, const dtrace_recdesc_t *rec, void *arg)
 {
+  fiveman_process_state * state = (fiveman_process_state *)arg;
+  mac_sampling_data * ctxt = (mac_sampling_data *) state->sample_ctxt;
+
 	dtrace_actkind_t act;
   io_record * addr;
 	if (rec == NULL) return (DTRACE_CONSUME_NEXT);
@@ -110,27 +131,27 @@ static int dorec(const dtrace_probedata_t *data, const dtrace_recdesc_t *rec, vo
     io_counter * counter = NULL;
     switch(addr->type){
     case IO_RECORD_DEV_READ:
-      counter = &dev;
+      counter = &ctxt->dev;
       counter->read += addr->block_size;
       break;
     case IO_RECORD_DEV_WRITE:
-      counter = &dev;
+      counter = &ctxt->dev;
       counter->write += addr->block_size;
       break;
     case IO_RECORD_FS_READ:
-      counter = &fs;
+      counter = &ctxt->fs;
       counter->read += addr->block_size;
       break;
     case IO_RECORD_FS_WRITE:
-      counter = &fs;
+      counter = &ctxt->fs;
       counter->write += addr->block_size;
       break;
     case IO_RECORD_NET_READ:
-      counter = &net;
+      counter = &ctxt->net;
       counter->read += addr->block_size;
       break;
     case IO_RECORD_NET_WRITE:
-      counter = &net;
+      counter = &ctxt->net;
       counter->write += addr->block_size;
       break;
     }
@@ -157,123 +178,86 @@ int
 set_opts(dtrace_hdl_t *dtp)
 {
   return (set_opt(dtp, "strsize", "4096")
-          | set_opt(dtp, "bufsize", "4m")
-          | set_opt(dtp, "aggsize", "512k")
-          | set_opt(dtp, "specsize", "512k")
-          | set_opt(dtp, "aggrate", "3000msec")
-          | set_opt(dtp, "switchrate", "10hz")
+          | set_opt(dtp, "bufsize", "64k")
+          | set_opt(dtp, "aggsize", "0k")
+          | set_opt(dtp, "specsize", "0k")
           | set_opt(dtp, "arch", "x86_64"));
 }
 
-void fiveman_init_sampling(pid_t pid){
+
+void fiveman_init_sampling(fiveman_process_state * state){
+
+  mac_sampling_data * ctxt = (mac_sampling_data *) calloc(1, sizeof(mac_sampling_data));
+  assert(ctxt != NULL);
+
+  assert(task_for_pid(mach_task_self(), state->pid, &ctxt->fiveman_sampled_task) == KERN_SUCCESS);
 
   int err;
-  dtrace_proginfo_t info;
 
-  dtrace_prog_t *prog;
+  ctxt->dtp = dtrace_open(DTRACE_VERSION, DTRACE_O_LP64, &err);
+  assert(ctxt->dtp != NULL);
 
-  dtp = dtrace_open(DTRACE_VERSION, DTRACE_O_LP64, &err);
-  assert(dtp != NULL);
-
-  err = set_opts(dtp);
+  err = set_opts(ctxt->dtp);
   assert(err != -1);
 
   char pid_str[1024];
   bzero(pid_str, sizeof(char) * 1024);
-  snprintf(pid_str, 1024, "%i", pid);
+  snprintf(pid_str, 1024, "%i", state->pid);
 
-  proc = dtrace_proc_grab(dtp, pid, 0);
-  assert(proc != NULL);
+  ctxt->proc = dtrace_proc_grab(ctxt->dtp, state->pid, 0);
+  assert(ctxt->proc != NULL);
 
   char * args[2] = {
     "/bin/sh",
     pid_str
   };
 
-  prog = dtrace_program_strcompile(dtp, progstr, DTRACE_PROBESPEC_NAME, 0, 2, args);
-  if(prog == NULL){
+  ctxt->prog = dtrace_program_strcompile(ctxt->dtp, progstr, DTRACE_PROBESPEC_NAME, 0, 2, args);
+  if(ctxt->prog == NULL){
     printf("ERROR2: bad program: %s\n", dtrace_errmsg(NULL,err));
   }
-  assert(prog != NULL);
+  assert(ctxt->prog != NULL);
 
-  err = dtrace_program_exec(dtp, prog, &info);
+  err = dtrace_program_exec(ctxt->dtp, ctxt->prog, &ctxt->info);
   assert(err != -1);
 
-  err = dtrace_go(dtp);
+  err = dtrace_go(ctxt->dtp);
   assert(err != -1);
 
-  dtrace_proc_continue(dtp, proc);
+  dtrace_proc_continue(ctxt->dtp, ctxt->proc);
+
+  state->sample_ctxt = ctxt;
 
 }
 
-void fiveman_teardown_sampling(pid_t pid) {
-  dtrace_proc_continue(dtp, proc);
-  dtrace_proc_release(dtp, proc);
-  dtrace_stop(dtp);
-  dtrace_close(dtp);
-}
+void fiveman_teardown_sampling(fiveman_process_state * state) {
+  mac_sampling_data * ctxt = (mac_sampling_data *)state->sample_ctxt;
+  if(ctxt != NULL){
+    dtrace_proc_continue(ctxt->dtp, ctxt->proc);
+    dtrace_proc_release(ctxt->dtp, ctxt->proc);
+    dtrace_stop(ctxt->dtp);
+    dtrace_close(ctxt->dtp);
 
-
-void fiveman_sampling_sleep(int last_slept){
-  time_t now;
-  time(&now);
-  int delta = now - last_slept;
-  dtrace_sleep(dtp);
-  if(delta < 1){
-    sleep(1);
+    free(state->sample_ctxt);
   }
-}
-
-// Most of this is shamefully taken from Chrome
-
-#define TIME_VALUE_TO_TIMEVAL(a, r) do {  \
-		(r)->tv_sec = (a)->seconds;							\
-		(r)->tv_usec = (a)->microseconds;				\
-	} while (0)
-
-const int kMicrosecondsPerSecond = 1000000;
-
-static task_t fiveman_sampled_task = MACH_PORT_NULL;
-
-uint64_t TimeValToMicroseconds(const struct timeval * tv) {
-  return tv->tv_sec * kMicrosecondsPerSecond + tv->tv_usec;
+  state->sample_ctxt = NULL;
 }
 
 
-void fiveman_sample_info(fiveman_process_statistics_sample * previous_sample, fiveman_process_statistics_sample * sample) {
-  int status = dtrace_status(dtp);
+void fiveman_sample_info(fiveman_process_state * state, fiveman_process_statistics_sample * previous_sample, fiveman_process_statistics_sample * sample) {
+  mac_sampling_data * ctxt = (mac_sampling_data *)state->sample_ctxt;
+
+  int status = dtrace_status(ctxt->dtp);
   if (status == DTRACE_STATUS_OKAY) {
-    status = dtrace_work(dtp, NULL, NULL, dorec, NULL);
+    status = dtrace_work(ctxt->dtp, NULL, NULL, dorec, state);
   } else if (status != DTRACE_STATUS_NONE) {
     // no -op
   }
-
-  assert(fiveman_sampled_task != MACH_PORT_NULL);
-  struct task_basic_info_64 task_info_data;
-  struct task_thread_times_info thread_info_data;
-  mach_msg_type_number_t thread_info_count = TASK_THREAD_TIMES_INFO_COUNT;
-  mach_msg_type_number_t size = sizeof(task_info_data);
-  kern_return_t kr = task_info(fiveman_sampled_task, TASK_BASIC_INFO_64, (task_info_t) &task_info_data, &size);
-  assert(kr == KERN_SUCCESS);
-   kr = task_info(fiveman_sampled_task, TASK_THREAD_TIMES_INFO, (task_info_t) &thread_info_data, &thread_info_count);
-  assert(kr == KERN_SUCCESS);
-
-  struct timeval user_timeval, system_timeval, task_timeval;
-	TIME_VALUE_TO_TIMEVAL(&thread_info_data.user_time, &user_timeval);
-	TIME_VALUE_TO_TIMEVAL(&thread_info_data.system_time, &system_timeval);
-	timeradd(&user_timeval, &system_timeval, &task_timeval);
-
-	// ... task info contains terminated time.
-	TIME_VALUE_TO_TIMEVAL(&task_info_data.user_time, &user_timeval);
-	TIME_VALUE_TO_TIMEVAL(&task_info_data.system_time, &system_timeval);
-	timeradd(&user_timeval, &task_timeval, &task_timeval);
-	timeradd(&system_timeval, &task_timeval, &task_timeval);
 
   struct timeval now;
   gettimeofday(&now, NULL);
 
   uint64_t now_time = TimeValToMicroseconds(&now);
-  uint64_t total_time = TimeValToMicroseconds(&task_timeval);
   uint64_t time_delta = now_time - previous_sample->sample_time;
   uint32_t time_delta_in_seconds = time_delta / kMicrosecondsPerSecond;
   if(time_delta_in_seconds == 0){
@@ -281,145 +265,54 @@ void fiveman_sample_info(fiveman_process_statistics_sample * previous_sample, fi
   }
 
   sample->sample_time = now_time;
-  sample->total_time = total_time;
-  if(previous_sample->sample_time > 0){
-    uint64_t total_delta = sample->total_time - previous_sample->total_time;
-    double cpu_usage = (((double)total_delta / (double)time_delta) * 100.0);
-    sample->cpu_usage = lround(cpu_usage);
-  }
-  sample->memory_usage = task_info_data.resident_size;
+
+  if(ctxt->fiveman_sampled_task != MACH_PORT_NULL){
+    struct task_basic_info_64 task_info_data;
+    struct task_thread_times_info thread_info_data;
+    mach_msg_type_number_t thread_info_count = TASK_THREAD_TIMES_INFO_COUNT;
+    mach_msg_type_number_t size = sizeof(task_info_data);
+    kern_return_t kr = task_info(ctxt->fiveman_sampled_task, TASK_BASIC_INFO_64, (task_info_t) &task_info_data, &size);
+    if(kr == KERN_SUCCESS){
+      kr = task_info(ctxt->fiveman_sampled_task, TASK_THREAD_TIMES_INFO, (task_info_t) &thread_info_data, &thread_info_count);
+      if(kr == KERN_SUCCESS){
 
 
-  sample->io_read_rate = dev.read / time_delta_in_seconds;
-  sample->io_write_rate = dev.write / time_delta_in_seconds;
-  sample->net_read_rate = net.read / time_delta_in_seconds;
-  sample->net_write_rate = net.write / time_delta_in_seconds;
-  sample->fs_read_rate = fs.read / time_delta_in_seconds;
-  sample->fs_write_rate = fs.write / time_delta_in_seconds;
+        struct timeval user_timeval, system_timeval, task_timeval;
+        TIME_VALUE_TO_TIMEVAL(&thread_info_data.user_time, &user_timeval);
+        TIME_VALUE_TO_TIMEVAL(&thread_info_data.system_time, &system_timeval);
+        timeradd(&user_timeval, &system_timeval, &task_timeval);
 
-  net.read = 0;
-  net.write = 0;
-  dev.read = 0;
-  dev.write = 0;
-  fs.read = 0;
-  fs.write = 0;
-}
+        // ... task info contains terminated time.
+        TIME_VALUE_TO_TIMEVAL(&task_info_data.user_time, &user_timeval);
+        TIME_VALUE_TO_TIMEVAL(&task_info_data.system_time, &system_timeval);
+        timeradd(&user_timeval, &task_timeval, &task_timeval);
+        timeradd(&system_timeval, &task_timeval, &task_timeval);
 
+        uint64_t total_time = TimeValToMicroseconds(&task_timeval);
+        sample->total_time = total_time;
 
-// except this, taken from:
-// http://www.foldr.org/~michaelw/log/computers/macosx/task-info-fun-with-mach
-#define CHECK_MACH_ERROR(err, msg)																			\
-		if (err != KERN_SUCCESS) {																					\
-				mach_error (msg, err);																					\
-				return -1;																											\
-		}
-
-
-
-static int setup_recv_port (mach_port_t *recv_port) {
-    kern_return_t       err;
-    mach_port_t         port = MACH_PORT_NULL;
-    err = mach_port_allocate (mach_task_self (),
-                              MACH_PORT_RIGHT_RECEIVE, &port);
-    CHECK_MACH_ERROR (err, "mach_port_allocate failed:");
-
-    err = mach_port_insert_right (mach_task_self (),
-                                  port,
-                                  port,
-                                  MACH_MSG_TYPE_MAKE_SEND);
-    CHECK_MACH_ERROR (err, "mach_port_insert_right failed:");
-
-    *recv_port = port;
-    return 0;
-}
-
-static int send_port (mach_port_t remote_port, mach_port_t port) {
-    kern_return_t       err;
-
-    struct {
-        mach_msg_header_t          header;
-        mach_msg_body_t            body;
-        mach_msg_port_descriptor_t task_port;
-    } msg;
-
-    msg.header.msgh_remote_port = remote_port;
-    msg.header.msgh_local_port = MACH_PORT_NULL;
-    msg.header.msgh_bits = MACH_MSGH_BITS (MACH_MSG_TYPE_COPY_SEND, 0) |
-        MACH_MSGH_BITS_COMPLEX;
-    msg.header.msgh_size = sizeof msg;
-
-    msg.body.msgh_descriptor_count = 1;
-    msg.task_port.name = port;
-    msg.task_port.disposition = MACH_MSG_TYPE_COPY_SEND;
-    msg.task_port.type = MACH_MSG_PORT_DESCRIPTOR;
-
-    err = mach_msg_send (&msg.header);
-    CHECK_MACH_ERROR (err, "mach_msg_send failed:");
-
-    return 0;
-}
-
-static int recv_port (mach_port_t recv_port, mach_port_t *port) {
-    kern_return_t       err;
-    struct {
-        mach_msg_header_t          header;
-        mach_msg_body_t            body;
-        mach_msg_port_descriptor_t task_port;
-        mach_msg_trailer_t         trailer;
-    } msg;
-
-    err = mach_msg (&msg.header, MACH_RCV_MSG,
-                    0, sizeof msg, recv_port,
-                    MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
-    CHECK_MACH_ERROR (err, "mach_msg failed:");
-
-    *port = msg.task_port.name;
-    return 0;
-}
-
-pid_t fiveman_sampling_fork(){
-    kern_return_t       err;
-    mach_port_t         parent_recv_port = MACH_PORT_NULL;
-    mach_port_t         child_recv_port = MACH_PORT_NULL;
-
-    if (setup_recv_port (&parent_recv_port) != 0)
-        return -1;
-    err = task_set_bootstrap_port (mach_task_self (), parent_recv_port);
-    CHECK_MACH_ERROR (err, "task_set_bootstrap_port failed:");
-
-    pid_t               pid;
-    switch (pid = fork ()) {
-    case -1:
-        err = mach_port_deallocate (mach_task_self(), parent_recv_port);
-        CHECK_MACH_ERROR (err, "mach_port_deallocate failed:");
-        return pid;
-    case 0: /* child */
-        err = task_get_bootstrap_port (mach_task_self (), &parent_recv_port);
-        CHECK_MACH_ERROR (err, "task_get_bootstrap_port failed:");
-        if (setup_recv_port (&child_recv_port) != 0)
-            return -1;
-        if (send_port (parent_recv_port, mach_task_self ()) != 0)
-            return -1;
-        if (send_port (parent_recv_port, child_recv_port) != 0)
-            return -1;
-        if (recv_port (child_recv_port, &bootstrap_port) != 0)
-            return -1;
-        err = task_set_bootstrap_port (mach_task_self (), bootstrap_port);
-        CHECK_MACH_ERROR (err, "task_set_bootstrap_port failed:");
-        break;
-    default: /* parent */
-        err = task_set_bootstrap_port (mach_task_self (), bootstrap_port);
-        CHECK_MACH_ERROR (err, "task_set_bootstrap_port failed:");
-        if (recv_port (parent_recv_port, &fiveman_sampled_task) != 0)
-            return -1;
-        if (recv_port (parent_recv_port, &child_recv_port) != 0)
-            return -1;
-        if (send_port (child_recv_port, bootstrap_port) != 0)
-            return -1;
-        err = mach_port_deallocate (mach_task_self(), parent_recv_port);
-        CHECK_MACH_ERROR (err, "mach_port_deallocate failed:");
-        break;
+        if(previous_sample->sample_time > 0){
+          uint64_t total_delta = sample->total_time - previous_sample->total_time;
+          double cpu_usage = (((double)total_delta / (double)time_delta) * 100.0);
+          sample->cpu_usage = lround(cpu_usage);
+        }
+        sample->memory_usage = task_info_data.resident_size;
+      }
     }
+  }
 
-    return pid;
+
+  sample->io_read_rate = ctxt->dev.read / time_delta_in_seconds;
+  sample->io_write_rate = ctxt->dev.write / time_delta_in_seconds;
+  sample->net_read_rate = ctxt->net.read / time_delta_in_seconds;
+  sample->net_write_rate = ctxt->net.write / time_delta_in_seconds;
+  sample->fs_read_rate = ctxt->fs.read / time_delta_in_seconds;
+  sample->fs_write_rate = ctxt->fs.write / time_delta_in_seconds;
+
+  ctxt->net.read = 0;
+  ctxt->net.write = 0;
+  ctxt->dev.read = 0;
+  ctxt->dev.write = 0;
+  ctxt->fs.read = 0;
+  ctxt->fs.write = 0;
 }

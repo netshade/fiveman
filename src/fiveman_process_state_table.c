@@ -53,6 +53,22 @@ void fiveman_process_state_table_change_intent(fiveman_process_state * state, FI
   }
 }
 
+void fiveman_process_state_table_reflect_desired_intent(fiveman_process_state * state) {
+  fiveman_process_state * cur_state = state;
+  while(cur_state != NULL){
+    fiveman_process_state_reflect_desired_intent(cur_state);
+    cur_state = cur_state->next;
+  }
+}
+
+void fiveman_process_state_table_desires_intent(fiveman_process_state * state, FIVEMAN_INTENT intent) {
+  fiveman_process_state * cur_state = state;
+  while(cur_state != NULL){
+    fiveman_process_state_desires_intent(cur_state, intent);
+    cur_state = cur_state->next;
+  }
+}
+
 void fiveman_process_state_table_signal(fiveman_process_state * state, int signal) {
   fiveman_process_state * cur_state = state;
   while(cur_state != NULL){
@@ -75,20 +91,6 @@ int fiveman_process_state_table_num_alive(fiveman_process_state * state){
 
 void fiveman_process_state_table_mark_as_application_table(fiveman_process_state * table) {
   application_state_table = table;
-}
-
-void fiveman_process_state_table_close_pipes(int close_in, int close_out, fiveman_process_state * table) {
-  fiveman_process_state_table_close_sibling_pipes(close_in, close_out, NULL, table);
-}
-
-void fiveman_process_state_table_close_sibling_pipes(int close_in, int close_out, fiveman_process_state * child, fiveman_process_state * table) {
-  fiveman_process_state * cur_state = table;
-  while(cur_state != NULL){
-    if(child != cur_state){
-      fiveman_process_state_close_pipes(close_in, close_out, cur_state);
-    }
-    cur_state = cur_state->next;
-  }
 }
 
 void fiveman_process_state_table_reap_zombie_processes(fiveman_process_state * table){

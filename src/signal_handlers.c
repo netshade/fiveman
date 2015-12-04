@@ -23,10 +23,6 @@ void handle_sigint(int sig){
 }
 
 void handle_childkill(int sig) {
-  if(state_in_fork != NULL){
-    fiveman_teardown_sampling(state_in_fork->pid);
-    kill(state_in_fork->pid, sig);
-  }
   exit(0);
 }
 

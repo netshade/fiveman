@@ -1,6 +1,7 @@
 #include "ncurses_screen.h"
 
 #include <math.h>
+#include <pthread.h>
 #include <signal.h>
 
 #include "fiveman.h"
@@ -295,7 +296,7 @@ void draw_ui_text(char * procfile, char * directory, int maxy, int maxx) {
   printw("Procfile: %s Directory: %s", procfile, directory);
 }
 
-void draw_screen(char * procfile, char * directory, fiveman_process_state * process_state, int total_states){
+void draw_screen(char * procfile, char * directory, fiveman_process_state * process_state, int total_states, fiveman_status_thread * thread_info, fiveman_pager_fork * pager_fork){
   fiveman_process_state * state = process_state;
   int header_row                = 1;
   int entry_start_row           = 2;
@@ -310,8 +311,6 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
   bool is_terminating           = FALSE;
   bool redraw                   = FALSE;
 
-  fiveman_ncurses_screen_entry cur_draw_entries[total_states];
-  fiveman_ncurses_screen_entry prev_draw_entries[total_states];
   fiveman_ncurses_screen_extents extents;
   time_t term_issued_at;
 
@@ -321,8 +320,6 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
   fiveman_process_state * states[total_states];
   while(state != NULL){
     states[cur_row] = state;
-    initialize_screen_entry(state, &cur_draw_entries[cur_row]);
-    initialize_screen_entry(state, &prev_draw_entries[cur_row]);
     state = state->next;
     cur_row ++;
   }
@@ -342,25 +339,18 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
       draw_headers(&extents, header_row);
       draw_ui_text(procfile, directory, max_row, max_col);
     }
-    fiveman_process_state_table_reap_zombie_processes(process_state);
-    fiveman_process_state_table_converge(process_state, directory);
     cur_row = 0;
-    while(state != NULL){
-      fiveman_process_state_child_process_status(state);
-      memcpy(&prev_draw_entries[cur_row], &cur_draw_entries[cur_row], sizeof(fiveman_ncurses_screen_entry));
-      update_screen_entry(state, &cur_draw_entries[cur_row]);
+    for(int i = 0; i < thread_info->num_entries; i++){
+      pthread_mutex_lock(&thread_info->mutex);
+      draw_screen_entry(thread_info->cur_entries + i, thread_info->prev_entries + i, inum, highlighted_row == cur_row, &extents, redraw);
+      pthread_mutex_unlock(&thread_info->mutex);
 
-      draw_screen_entry(&cur_draw_entries[cur_row], &prev_draw_entries[cur_row], inum, highlighted_row == cur_row, &extents, redraw);
-
-      state = state->next;
       cur_row ++;
       inum ++;
     }
     inum     = entry_start_row;
-    state = process_state;
     refresh();
     int c = getch();
-
     switch(c){
     case 'q':
       exit_fiveman = TRUE;
@@ -369,16 +359,24 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
       refresh();
       break;
     case 's':
-      fiveman_process_state_change_intent(states[highlighted_row], INTENT_STOP);
+      pthread_mutex_lock(&thread_info->mutex);
+      fiveman_process_state_desires_intent(states[highlighted_row], INTENT_STOP);
+      pthread_mutex_unlock(&thread_info->mutex);
       break;
     case 'l':
-      fiveman_process_state_change_intent(states[highlighted_row], INTENT_START);
+      pthread_mutex_lock(&thread_info->mutex);
+      fiveman_process_state_desires_intent(states[highlighted_row], INTENT_START);
+      pthread_mutex_unlock(&thread_info->mutex);
       break;
     case 'o':
-      fiveman_process_state_page_stdout(states[highlighted_row]);
+      suspend_screen();
+      fiveman_process_state_page_stdout(states[highlighted_row], pager_fork);
+      resume_screen();
       break;
     case 'e':
-      fiveman_process_state_page_stderr(states[highlighted_row]);
+      suspend_screen();
+      fiveman_process_state_page_stderr(states[highlighted_row], pager_fork);
+      resume_screen();
       break;
     case KEY_UP:
       highlighted_row --;
@@ -400,6 +398,7 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
       break;
     }
     if(is_terminating){
+      pthread_mutex_lock(&thread_info->mutex);
       if(fiveman_process_state_table_num_alive(process_state) > 0){
         time_t current;
         time(&current);
@@ -413,15 +412,18 @@ void draw_screen(char * procfile, char * directory, fiveman_process_state * proc
       } else {
         exit_fiveman_immediately = TRUE;
       }
+      pthread_mutex_unlock(&thread_info->mutex);
     }
     if(exit_fiveman_immediately){
       break;
     }
     if(exit_fiveman){
+      pthread_mutex_lock(&thread_info->mutex);
       time(&term_issued_at);
-      fiveman_process_state_table_change_intent(process_state, INTENT_STOP);
+      fiveman_process_state_table_desires_intent(process_state, INTENT_STOP);
       exit_fiveman   = FALSE;
       is_terminating = TRUE;
+      pthread_mutex_unlock(&thread_info->mutex);
     }
 
   }

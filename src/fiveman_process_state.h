@@ -5,36 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-
-#include "fiveman_instruction.h"
-#include "fiveman_process_intent.h"
-#include "fiveman_process_statistics.h"
-
-typedef enum {
-  FIVEMAN_PROCESS_STOPPED = 0,
-  FIVEMAN_PROCESS_RUNNING,
-  FIVEMAN_PROCESS_STARTING_UP,
-  FIVEMAN_PROCESS_SHUTTING_DOWN,
-  FIVEMAN_PROCESS_UNKNOWN
-} FIVEMAN_PROCESS_CURRENT_ACTIVITY;
-
-typedef struct fiveman_process_state {
-  const fiveman_instruction * instruction;
-  fiveman_process_intent intent;
-  fiveman_process_statistics_sample sample;
-  int desired_port;
-  pid_t pid;
-  int host_read_fd;
-  int child_write_fd;
-  time_t last_state_change;
-  char * stdout;
-  struct stat stdout_stat;
-  time_t stdout_paged_at;
-  char * stderr;
-  struct stat stderr_stat;
-  time_t stderr_paged_at;
-  struct fiveman_process_state * next;
-} fiveman_process_state;
+#include "fiveman_types.h"
 
 fiveman_process_state * fiveman_process_state_allocate(fiveman_instruction * instr, int port);
 void fiveman_process_state_deallocate(fiveman_process_state * state);
@@ -47,8 +18,8 @@ void fiveman_process_state_child_process_status(fiveman_process_state * state);
 void fiveman_process_state_page_file(fiveman_process_state * state, char * file);
 int fiveman_process_state_lifetime(fiveman_process_state * state);
 void fiveman_process_state_lifetime_str(fiveman_process_state * state, char * buf, size_t buf_size);
-void fiveman_process_state_page_stdout(fiveman_process_state * state);
-void fiveman_process_state_page_stderr(fiveman_process_state * state);
+void fiveman_process_state_page_stdout(fiveman_process_state * state, fiveman_pager_fork * fork);
+void fiveman_process_state_page_stderr(fiveman_process_state * state, fiveman_pager_fork * fork);
 void fiveman_process_state_change_intent(fiveman_process_state * state, FIVEMAN_INTENT intent);
 int fiveman_process_state_is_alive(fiveman_process_state * state);
 void fiveman_process_state_converge_start(fiveman_process_state * state, char * directory);
@@ -59,14 +30,12 @@ int fiveman_process_state_stderr_has_new_entries(fiveman_process_state * state);
 int fiveman_process_state_stdout_has_new_entries(fiveman_process_state * state);
 int fiveman_process_state_status_string(char * buffer, size_t buf_len, int index, fiveman_process_state * state);
 void fiveman_process_state_converge(fiveman_process_state * state, char * directory);
-void fiveman_process_state_initialize_pipes(fiveman_process_state * state);
-void fiveman_process_state_close_pipes(int close_in, int clouse_out, fiveman_process_state * state);
+void fiveman_process_state_desires_intent(fiveman_process_state * state, FIVEMAN_INTENT intent);
+void fiveman_process_state_reflect_desired_intent(fiveman_process_state * state);
 void fiveman_process_state_reap_zombie_processes(fiveman_process_state * state);
 void fiveman_process_state_sample_process(fiveman_process_state * state);
 void fiveman_process_state_clear_sample(fiveman_process_state * state);
 void fiveman_process_state_set_sample(fiveman_process_state * state, fiveman_process_statistics_sample * sample);
 FIVEMAN_PROCESS_CURRENT_ACTIVITY fiveman_process_state_current_activity(fiveman_process_state * state);
-
-extern fiveman_process_state * state_in_fork;
 
 #endif
