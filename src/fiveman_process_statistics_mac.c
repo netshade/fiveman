@@ -83,13 +83,14 @@ fsinfo:::write / pid == $1 / { \
   record_fs.start = timestamp;\
   trace(record_fs);\
 }\
-syscall::read*:entry, syscall::recv*:entry \
-/(fds[arg0].fi_fs == \"sockfs\" || fds[arg0].fi_name == \"<socket>\") && pid == $1/\
+syscall::read*:entry, syscall::recv*:entry\
+/pid == $1/\
 {\
-	self->socket = 1;\
+	self->socket = (fds[arg0].fi_fs == \"sockfs\" || fds[arg0].fi_name == \"<socket>\") ? 1 : 0;\
 }\
 \
-syscall::read*:return, syscall::recv*:return /self->socket && pid == $1 && arg0 > 0/\
+syscall::read*:entry, syscall::recv*:entry\
+/self->socket/\
 {\
   record_net.block_size = arg0;\
   record_net.type = 5;\
@@ -99,13 +100,13 @@ syscall::read*:return, syscall::recv*:return /self->socket && pid == $1 && arg0 
 }\
 \
 syscall::write*:entry, syscall::send*:entry\
-/(fds[arg0].fi_fs == \"sockfs\" || fds[arg0].fi_name == \"<socket>\") && pid == $1/\
+/pid == $1/\
 {\
-	self->socket = 1;\
+	self->socket = (fds[arg0].fi_fs == \"sockfs\" || fds[arg0].fi_name == \"<socket>\") ? 1 : 0;\
 }\
 \
-syscall::write*:return, syscall::send*:return\
-/self->socket && pid == $1 && arg0 > 0/\
+syscall::write*:entry, syscall::send*:entry\
+/self->socket/\
 {\
   record_net.block_size = arg0;\
   record_net.type = 6;\
