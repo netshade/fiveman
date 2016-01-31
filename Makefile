@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-c -Wall
-LDFLAGS=-lncurses -ldtrace -lpthread
+LDFLAGS=-lncurses -ldtrace -lpthread -framework Security
 OBJDIR=build
 PREFIX=/usr/local
 BINDIR=$(PREFIX)/bin

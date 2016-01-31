@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <Security/Security.h>
 
 typedef enum {
   IO_RECORD_DEV_READ  = 1,
@@ -185,11 +186,39 @@ set_opts(dtrace_hdl_t *dtp)
           | set_opt(dtp, "arch", "x86_64"));
 }
 
+static AuthorizationRef myAuthorizationRef = NULL;
+
 
 void fiveman_init_sampling(fiveman_process_state * state){
 
   mac_sampling_data * ctxt = (mac_sampling_data *) calloc(1, sizeof(mac_sampling_data));
   assert(ctxt != NULL);
+
+  if(myAuthorizationRef == NULL){
+    OSStatus myStatus;
+    myStatus = AuthorizationCreate (NULL, kAuthorizationEmptyEnvironment,
+                                    kAuthorizationFlagDefaults, &myAuthorizationRef);
+    assert(myStatus == errAuthorizationSuccess);
+
+    AuthorizationItem myItems[1];
+    myItems[0].name        = "system.privilege.taskport";
+    myItems[0].valueLength = 0;
+    myItems[0].value       = NULL;
+    myItems[0].flags       = 0;
+
+    AuthorizationRights myRights;
+    myRights.count = sizeof (myItems) / sizeof (myItems[0]);
+    myRights.items = myItems;
+
+    AuthorizationFlags myFlags;
+    myFlags = kAuthorizationFlagDefaults | kAuthorizationFlagInteractionAllowed | kAuthorizationFlagExtendRights;
+
+    myStatus = AuthorizationCopyRights (myAuthorizationRef, &myRights, kAuthorizationEmptyEnvironment, myFlags, NULL);
+    assert(myStatus == errAuthorizationSuccess);
+
+    myStatus = AuthorizationCreate (&myRights, kAuthorizationEmptyEnvironment, myFlags, &myAuthorizationRef);
+    assert(myStatus == errAuthorizationSuccess);
+  }
 
   assert(task_for_pid(mach_task_self(), state->pid, &ctxt->fiveman_sampled_task) == KERN_SUCCESS);
 
