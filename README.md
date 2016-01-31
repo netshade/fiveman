@@ -20,9 +20,10 @@ make install
 
 Notes:
 
-* Only tested on Mac OS X Yosemite so far. 
 * Screen refresh slowness is a known issue
 * Creates a `setuid root` binary currently. Processes created drop privilege, but still. ( Done to allow dtrace to inspect created processes on Mac OS X )
 * If Dtrace fails, creates orphaned processes.
 * Values reported by Dtrace inspection are not currently exact, should be marshalled into correct time windows or discarded
 * Does not handle small screen sizes very well, values should compact better
+* Works on Yosemite and El Capitan. El Capitan requires [disabling system integrity protection](http://osxdaily.com/2015/10/05/disable-rootless-system-integrity-protection-mac-os-x/). 
+
